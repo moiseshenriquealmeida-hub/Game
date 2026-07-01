@@ -1,0 +1,48 @@
+header {
+    background-color: black;
+    text-align: center;
+    color: white;
+}
+
+@font-face {
+    font-family: "Vhs Gothic";
+    src: url("vhs-gothic.ttf");
+}
+@font-face {
+    font-family: "PixelOperator";
+    src: url("PixelOperator.ttf");
+}
+
+body {
+    background-color: black;
+    color: white;
+    font-family: "Vhs Gothic";
+    
+    /* Center the canvas and remove scrollbars */
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    /* Your existing text styles */
+    text-align: center;
+    text-shadow: 32px 32px black;
+    -webkit-text-stroke: 1px black;
+    font-size: 256px;
+}
+
+canvas {
+    display: block;
+    
+    /* Scale to maximum possible size without stretching */
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
+    
+    image-rendering: pixelated;
+}

@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+
+
+<html lang="pt-br">
+    <head>
+        <title>MOISES BLOG</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="./style.css" rel="stylesheet" type="text/css" media="all">
+    </head>
+    <body>
+        <script>
+            const WinW = 1280
+            const WinH = 720
+            const Canvas = document.createElement("canvas");
+            const CanvasContext = Canvas.getContext("2d")
+            var Time = 0
+            var CurrentTime = 0
+            var LastTime = 0;
+            var Delta = 0;
+            var GameInstances = []
+
+
+            Canvas.id = "SaiteCanvas";
+            Canvas.width = WinW;
+            Canvas.height = WinH;
+
+
+            var KeysDown = {}
+            var OldKeysDown = {}
+            window.onkeyup = function(e) {KeysDown[e.code] = false}
+            window.onkeydown = function(e) {KeysDown[e.code] = true}
+
+
+            document.body.appendChild(Canvas);
+            CanvasContext.imageSmoothingEnabled = false;
+            CanvasContext.filter = 'none';
+
+
+            var Collisions = []
+
+
+            class Rectangle {
+                constructor(x, y, w, h) {
+                    this.x = x
+                    this.y = y
+                    this.w = w
+                    this.h = h
+                }
+
+
+                CollidingWithOther(Rect) {
+                    return this.x < Rect.x + Rect.w && this.x + this.w > Rect.x && this.y < Rect.y + Rect.h && this.y + this.h > Rect.y
+                }
+            }
+
+
+            const ANIM_END_LOOP = 0
+            const ANIM_END_END = 1
+
+
+            var Animations = []
+
+
+            class AnimFrame {
+                constructor(frameIndex) {
+                    this.Frame = frameIndex
+                    this.DrawFunc = null
+                    this.EndFunc = null
+                    this.UpdateFunc = null
+                    this.StartFunc = null
+                    this.Offset = {x: 0, y: 0}
+                    this.Rot = 0
+                    this.Scl = {x: 1, y: 1}
+                    this.Speed = 1
+                }
+            }
+
+
+            class AnimationDelimiter {
+                constructor(name, framesArray, fps) {
+                    this.Name = name
+                    this.Frames = []
+                    this.EndType = ANIM_END_LOOP
+                    this.Fps = fps
+
+
+                    for (var F = 0; F < framesArray.length; F++) {
+                        this.Frames.push(new AnimFrame(framesArray[F]))
+                    }
+                }
+            }
+
+
+            class CoolAnimation {
+                constructor(spriteSheetImg, fps, frameWidth, frameHeight) {
+                    this.CurrentFrame = 0
+                    this.DefaultFps = fps
+                    this.FrameWidth = frameWidth
+                    this.FrameHeight = frameHeight
+                    this.SpriteSheet = spriteSheetImg
+                    this.EndType = ANIM_END_LOOP
+                    this.Finished = false
+                    this.AutoPlay = true
+                    this.Persistent = false
+                    this.CurrentAnimDeli = null
+                    this.Delimiters = []
+                    this.FramesRects = []
+                    this.CurrentFrameStruct = null
+
+
+                    // Create rectangles for the sprite sheet
+                    for (var y = 0; y < spriteSheetImg.height; y += frameHeight) {
+                        for (var x = 0; x < spriteSheetImg.width; x += frameWidth) {
+                            this.FramesRects.push({x: x, y: y, w: frameWidth, h: frameHeight})
+                        }
+                    }
+
+
+                    this.FrameAmount = this.FramesRects.length
+
+
+                    Animations.push(this)
+                }
+
+
+                GetDelimiterFrame(delimiterName, whatFrame) {
+                    var UsedDeli = this.GetDelimiter(delimiterName)
+                    if (UsedDeli) return UsedDeli.Frames[whatFrame]
+                    return null
+                }
+
+
+                SetDelimiterFrame(delimiterName, whatFrame, toWhat) {
+                    var UsedDeli = this.GetDelimiter(delimiterName)
+                    if (UsedDeli) UsedDeli.Frames[whatFrame] = toWhat
+                }
+
+
+                GetDelimiter(name) {
+                    for (var i = 0; i < this.Delimiters.length; i++) {
+                        var CurrDelimiter = this.Delimiters[i]
+                        if (CurrDelimiter.Name === name) {
+                            return CurrDelimiter
+                        }
+                    }
+                    return null
+                }
+
+
+                DefineAnimationDelimiter(name, framesArray, fps) {
+                    var Deli = new AnimationDelimiter(name, framesArray, fps)
+                    this.Delimiters.push(Deli)
+                }
+
+
+                PlayDelimiter(name) {
+                    for (var a = 0; a < this.Delimiters.length; a++) {
+                        var Deli = this.Delimiters[a]
+
+
+                        if (Deli != null && name === Deli.Name) {
+                            if (this.CurrentAnimDeli !== Deli) {
+                                this.CurrentFrame = 0
+                            }
+
+
+                            this.CurrentAnimDeli = Deli
+                            return
+                        }
+                    }
+
+
+                    console.warn(`Animation "${name}" Not Found :(`)
+                }
+
+
+                Update() {
+                    var UsedFrame = Math.floor(this.CurrentFrame)
+                    var EndingFrame = 0
+                    var StartingFrame = 0
+
+
+                    if (this.CurrentAnimDeli != null) {
+                        EndingFrame = this.CurrentAnimDeli.Frames.length
+                        StartingFrame = 0
+
+
+                        UsedFrame = Math.floor(clamp(UsedFrame, StartingFrame, EndingFrame))
+                        var OldFrame = this.CurrentFrameStruct
+                        this.CurrentFrameStruct = this.CurrentAnimDeli.Frames[UsedFrame]
+
+
+                        if (this.CurrentFrameStruct == null && OldFrame != null) {
+                            this.CurrentFrameStruct = this.CurrentAnimDeli.Frames[UsedFrame - 1]
+                        }
+
+
+                        if (OldFrame !== this.CurrentFrameStruct) {
+                            if (OldFrame != null && OldFrame.EndFunc != null) {
+                                OldFrame.EndFunc()
+                            }
+
+
+                            if (this.CurrentFrameStruct != null && this.CurrentFrameStruct.StartFunc != null) {
+                                this.CurrentFrameStruct.StartFunc()
+                            }
+                        }
+                    } else {
+                        EndingFrame = this.FrameAmount
+                        StartingFrame = 0
+                        UsedFrame = Math.floor(clamp(UsedFrame, StartingFrame, EndingFrame))
+                        this.CurrentFrameStruct = null
+                    }
+
+
+                    var Ended = UsedFrame >= EndingFrame
+
+
+                    if (Ended) {
+                        var activeEndType = this.CurrentAnimDeli == null ? this.EndType : this.CurrentAnimDeli.EndType
+                        
+                        switch (activeEndType) {
+                            case ANIM_END_LOOP:
+                                if (this.CurrentAnimDeli != null) {
+                                    this.CurrentFrame = StartingFrame
+                                } else {
+                                    this.CurrentFrame = 0
+                                }
+                            break;
+
+
+                            case ANIM_END_END:
+                                this.CurrentFrame = EndingFrame - 0.01 // Keep it right at the end to prevent out-of-bounds
+                                this.Finished = true
+                            break;
+                        }
+                    } else {
+                        this.Finished = false
+                    }
+
+
+                    var Spd = this.DefaultFps
+
+
+                    if (this.CurrentAnimDeli != null) {
+                        var Mult = 1
+
+
+                        if (this.CurrentFrameStruct != null) {
+                            if (this.CurrentFrameStruct.UpdateFunc != null) {
+                                this.CurrentFrameStruct.UpdateFunc(UsedFrame)
+                            }
+
+
+                            Mult = this.CurrentFrameStruct.Speed
+                        }
+
+
+                        Spd = this.CurrentAnimDeli.Fps * Mult
+                    }
+
+
+                    // Assumes 'Delta' is accessible globally like in your previous files
+                    this.CurrentFrame += Spd * Delta
+                }
+
+
+                GetCurrentFrameIndex() {
+                    var CurrF = Math.floor(this.CurrentFrame)
+
+
+                    if (this.CurrentFrameStruct != null) {
+                        CurrF = this.CurrentFrameStruct.Frame
+                    }
+
+
+                    if (this.CurrentAnimDeli == null) {
+                        CurrF = Math.floor(clamp(CurrF, 0, this.FrameAmount - 1))
+                    }
+
+
+                    return CurrF
+                }
+
+
+                GetCurrentAnimationSource() {
+                    var Frame = this.GetCurrentFrameIndex()
+                    var Rec = this.FramesRects[Frame]
+
+
+                    return {
+                        x: Math.round(Rec.x),
+                        y: Math.round(Rec.y),
+                        w: Math.round(Rec.w),
+                        h: Math.round(Rec.h)
+                    }
+                }
+
+
+                Draw(Pos, Rot, Scale, Pivot, Alpha = 1.0) {
+                    // Default fallbacks for objects
+                    Pos = Pos || {x: 0, y: 0}
+                    Scale = Scale || {x: 1, y: 1}
+                    Pivot = Pivot || {x: 0, y: 0}
+                    Rot = Rot || 0
+
+
+                    if (this.CurrentFrameStruct != null) {
+                        Pos.x += this.CurrentFrameStruct.Offset.x
+                        Pos.y += this.CurrentFrameStruct.Offset.y
+                        Rot += this.CurrentFrameStruct.Rot
+                        Scale.x *= this.CurrentFrameStruct.Scl.x
+                        Scale.y *= this.CurrentFrameStruct.Scl.y
+                    }
+
+
+                    var UsedFrame = this.GetCurrentAnimationSource()
+
+
+                    if (this.CurrentFrameStruct != null && this.CurrentFrameStruct.DrawFunc != null) {
+                        // Passes references just like the C pointers
+                        this.CurrentFrameStruct.DrawFunc(Pos, Rot, Scale, Pivot, Alpha)
+                    }
+
+
+                    // Canvas translation matrix (replaces al_draw_tinted_scaled_rotated_bitmap_region)
+                    CanvasContext.save()
+                    
+                    CanvasContext.globalAlpha = Alpha
+                    CanvasContext.translate(Pos.x, Pos.y)
+                    CanvasContext.rotate(Rot)
+                    CanvasContext.scale(Scale.x, Scale.y)
+                    
+                    // Draw image offset by the pivot
+                    CanvasContext.drawImage(
+                        this.SpriteSheet,
+                        UsedFrame.x, UsedFrame.y, UsedFrame.w, UsedFrame.h,
+                        -Pivot.x, -Pivot.y, UsedFrame.w, UsedFrame.h
+                    )
+
+
+                    CanvasContext.restore()
+                }
+
+
+                CopyAnimation() {
+                    var Anim = new Animation(this.SpriteSheet, this.DefaultFps, this.FrameWidth, this.FrameHeight)
+                    
+                    Anim.AutoPlay = this.AutoPlay
+                    Anim.EndType = this.EndType
+                    Anim.Persistent = this.Persistent
+
+
+                    for (var a = 0; a < this.Delimiters.length; a++) {
+                        var Deli = this.Delimiters[a]
+
+
+                        if (Deli != null) {
+                            var framesArray = []
+                            for (var fr = 0; fr < Deli.Frames.length; fr++) {
+                                framesArray.push(Deli.Frames[fr].Frame)
+                            }
+                            
+                            Anim.DefineAnimationDelimiter(Deli.Name, framesArray, Deli.Fps)
+                        }
+                    }
+
+
+                    return Anim
+                }
+
+
+                Delete() {
+                    var index = Animations.indexOf(this)
+                    if (index > -1) {
+                        Animations.splice(index, 1)
+                    }
+                }
+            }
+
+
+            function UpdateAnimations() {
+                for (var i = 0; i < Animations.length; i++) {
+                    var CurrAnim = Animations[i]
+
+
+                    if (CurrAnim != null && CurrAnim.AutoPlay) {
+                        CurrAnim.Update()
+                    }
+                }
+            }
+
+
+            function UnloadAllAnimations() {
+                // Keeps persistent animations, removes the rest
+                Animations = Animations.filter(anim => anim.Persistent)
+            }
+
+
+            class GameInstance {
+                constructor() {
+                    GameInstances.push(this)
+                }
+
+
+                Update() {}
+                Draw() {}
+
+
+                Delete() {
+                    GameInstances.splice(GameInstances.indexOf(this), 1)
+                }
+            }
+
+
+            class Player extends GameInstance {
+                constructor(x, y) {
+                    super()
+                    this.x = x
+                    this.y = y
+                    this.velX = 0
+                    this.velY = 0
+                    this.mspd = 500
+                    this.gravity = 1800
+                    this.jumpForce = -750
+                    this.colW = 64
+                    this.colH = 128
+                    this.col = new Rectangle(x - this.colW / 2, y - this.colH, this.colW, this.colH)
+                    this.coyoteTime = 0.15
+                    this.coyoteTimer = 0
+                    this.jumpBufferTime = 0.15
+                    this.jumpBufferTimer = 0
+                    let spriteImage = createImage("./PlayerSprs.png", 96, 128)
+                    this.anim = new CoolAnimation(spriteImage, 10, 32, 32)
+                    this.anim.DefineAnimationDelimiter("Idle", [0], 0)
+                    this.anim.DefineAnimationDelimiter("Walk", [3, 4, 3, 5], 5)
+                    this.anim.DefineAnimationDelimiter("Jump", [6], 5)
+                    this.anim.DefineAnimationDelimiter("Fall", [9], 5)
+                    this.anim.PlayDelimiter("Idle")
+                    this.flip = {x: 1, y: 1}
+                    this.squish = {x: 1, y: 1}
+                    this.oldOnFloor = false
+                }
+
+                Update() {
+                    this.velX = lerp(this.velX, this.mspd * (IsKeyDown("KeyD") - IsKeyDown("KeyA")), 12)
+                    this.velY += this.gravity * Delta
+                    var OnFloor = false
+                    this.coyoteTimer -= Delta
+                    this.jumpBufferTimer -= Delta
+                    if (IsKeyPressed("Space")) this.jumpBufferTimer = this.jumpBufferTime
+                    if (this.jumpBufferTimer > 0 && this.coyoteTimer > 0) {
+                        this.velY = this.jumpForce
+                        this.jumpBufferTimer = 0
+                        this.coyoteTimer = 0
+                    }
+                    this.x += this.velX * Delta
+                    this.UpdateCols()
+                    for (var i = 0; i < Collisions.length; i++) {
+                        if (this.col.CollidingWithOther(Collisions[i])) {
+                            if (this.velX > 0) this.x = Collisions[i].x - this.colW / 2
+                            if (this.velX < 0) this.x = Collisions[i].x + Collisions[i].w + this.colW / 2
+                            this.UpdateCols()
+                        }
+                    }
+                    this.y += this.velY * Delta
+                    this.UpdateCols()
+                    for (var i = 0; i < Collisions.length; i++) {
+                        if (this.col.CollidingWithOther(Collisions[i])) {
+                            if (this.velY > 0) {
+                                this.y = Collisions[i].y
+                                this.velY = 0
+                                OnFloor = true
+                                this.coyoteTimer = this.coyoteTime
+                            } else if (this.velY < 0) {
+                                this.y = Collisions[i].y + Collisions[i].h + this.colH
+                                this.velY = 0
+                            }
+                            this.UpdateCols()
+                        }
+                    }
+                    if (!this.oldOnFloor && OnFloor) {
+                        this.squish.x = 2
+                        this.squish.y = 0
+                    }
+                    if (this.oldOnFloor && !OnFloor) {
+                        this.squish.x = 0
+                        this.squish.y = 2
+                    }
+                    if (OnFloor) {
+                        if (Math.abs(this.velX) > 10) this.anim.PlayDelimiter("Walk")
+                        else this.anim.PlayDelimiter("Idle")
+                    } else {
+                        this.squish.x += this.velX * 0.0002
+                        this.squish.y += this.velY * 0.0002
+
+
+                        if (this.velY > 0) this.anim.PlayDelimiter("Fall")
+                        else this.anim.PlayDelimiter("Jump")
+                    }
+                    if (Math.abs(this.velX) > 10) {
+                        this.flip.x = lerp(this.flip.x, Math.sign(this.velX), 12)
+                    }else{
+                        this.flip.x = lerp(this.flip.x, Math.sign(this.flip.x), 12)
+                    }
+                    this.anim.Update()
+                    this.oldOnFloor = OnFloor
+                    this.squish.x = lerp(this.squish.x, 1, 12)
+                    this.squish.y = lerp(this.squish.y, 1, 12)
+                }
+
+                UpdateCols() {
+                    this.col.x = this.x - this.colW / 2
+                    this.col.y = this.y - this.colH
+                }
+
+                Draw() {
+                    this.anim.Draw({x: this.x, y: this.y}, 0, {x: 4 * this.flip.x * this.squish.x, y: 4 * this.flip.y * this.squish.y}, {x: 16, y: 32}, 1)
+                }
+            }
+
+
+            class Wall extends GameInstance {
+                constructor(x, y, w, h) {
+                    super()
+                    this.x = x
+                    this.y = y
+                    this.w = w
+                    this.h = h
+                    this.col = new Rectangle(x, y, w, h)
+                    Collisions.push(this.col)
+                }
+
+
+                Draw() {
+                    CanvasContext.fillStyle = "red"
+                    CanvasContext.fillRect(this.x, this.y, this.w, this.h)
+                }
+            }
+
+
+            new Player(100, 100)
+            
+            new Wall(0, 700, 1600, 50)
+            new Wall(300, 550, 200, 32)
+            new Wall(600, 420, 200, 32)
+            new Wall(1000, 420, 200, 720)
+
+
+            function UpdateGame(timestamp) {
+                CurrentTime = timestamp || 0
+                Delta = clamp((CurrentTime - LastTime) / 1000, 0, 0.1);
+                LastTime = CurrentTime;
+
+
+                for (var i = 0; i < GameInstances.length; i++) {
+                    var Inst = GameInstances[i]
+
+
+                    Inst.Update()
+                }
+
+
+                CanvasContext.clearRect(0, 0, Canvas.width, Canvas.height)
+
+
+                for (var i = 0; i < GameInstances.length; i++) {
+                    var Inst = GameInstances[i]
+
+
+                    Inst.Draw()
+                }
+
+
+                OldKeysDown = {...KeysDown}
+                requestAnimationFrame(UpdateGame)
+            }
+
+
+            function IsKeyDown(Key) {
+                return KeysDown[Key] || false
+            }
+            function IsKeyPressed(Key) {
+                return (KeysDown[Key] || false) && !(OldKeysDown[Key] || false)
+            }
+            function IsKeyReleased(Key) {
+                return !(KeysDown[Key] || false) && (OldKeysDown[Key] || false)
+            }
+            function createImage(src, width, height, alt) {
+                let img = document.createElement("img");
+
+
+                img.src = src;
+                img.width = width;
+                img.height = height;
+                img.alt = alt;
+
+
+                return img;
+            }
+            function clamp(num, min, max) {
+                return num <= min
+                ? min
+                : num >= max
+                ? max
+                : num
+            }
+            function lerp(A, B, Force) {
+                return A + (B - A) * (1 - Math.exp(-Force * Delta));
+            }
+
+
+            requestAnimationFrame(UpdateGame)
+        </script>
+    </body>
+</html>
