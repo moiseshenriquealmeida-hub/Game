@@ -530,12 +530,12 @@
                     this.h = h
                     this.col = new Rectangle(x, y, w, h)
                     Collisions.push(this.col)
+                    this.img = createImage("./Grass.png", 16, 16)
                 }
 
 
                 Draw() {
-                    CanvasContext.fillStyle = "red"
-                    CanvasContext.fillRect(this.x, this.y, this.w, this.h)
+                    CanvasContext.drawImage(this.img, this.x, this.y, this.w, this.h)
                 }
             }
 
